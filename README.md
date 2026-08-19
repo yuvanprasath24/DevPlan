@@ -47,7 +47,8 @@ Open http://localhost:3000, describe a project, pick a mode, hit `$ devplan gen`
 | Var | Default | Notes |
 | --- | --- | --- |
 | `GEMINI_API_KEY` | — | required; Google AI Studio key (works with a Google AI Pro subscription) |
-| `GEMINI_MODEL` | `gemini-3.5-flash` | any model your key can reach |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | any model your key can reach |
+| `GEMINI_MODELS` | `gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite` | comma-separated fallback chain — rate-limited/busy models are skipped automatically |
 
 ## How it works
 

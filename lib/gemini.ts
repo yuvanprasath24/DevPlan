@@ -7,7 +7,25 @@ import {
   type QuestionsResponse,
 } from "./types";
 
-export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.5-flash";
+const DEFAULT_MODELS = "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite";
+
+// Comma-separated fallback chain (env GEMINI_MODELS) — quota is per-model, so a
+// rate-limited model falls through to the next one instead of failing the demo.
+// Legacy GEMINI_MODEL only sets the primary; the default chain still follows it.
+const defaultModelsArr = DEFAULT_MODELS.split(",").map((s) => s.trim());
+const configuredModels = (process.env.GEMINI_MODELS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const legacyModel = (process.env.GEMINI_MODEL ?? "").trim();
+
+export const GEMINI_MODELS = configuredModels.length
+  ? configuredModels
+  : legacyModel
+    ? [legacyModel, ...defaultModelsArr.filter((m) => m !== legacyModel)]
+    : defaultModelsArr;
+
+export const GEMINI_MODEL = GEMINI_MODELS[0];
 
 const categoryEnum = [
   "Environment Setup",
@@ -234,8 +252,6 @@ export function generateQuestions(req: PlanRequest): Promise<QuestionsResponse> 
     contents: buildQuestionsPrompt(req),
     jsonSchema: geminiQuestionsSchema,
     validate: (parsed) => questionsResponseSchema.safeParse(parsed),
-    errorMessage:
-      "The model returned questions that did not match the expected structure.",
   }).then((validated) => ({
     questions: validated.questions.slice(0, 4),
   }));
@@ -247,8 +263,6 @@ export async function generatePlan(req: PlanRequest): Promise<PlanResponse> {
     contents: buildUserPrompt(req),
     jsonSchema: geminiPlanSchema,
     validate: (parsed) => planResponseSchema.safeParse(parsed),
-    errorMessage:
-      "The model returned a plan that did not match the expected structure. Please try again.",
   });
   return normalizePlan(validated);
 }
@@ -258,7 +272,69 @@ interface CallGeminiArgs<T> {
   contents: string;
   jsonSchema: unknown;
   validate: (parsed: unknown) => { success: boolean; data?: T | undefined };
-  errorMessage: string;
+}
+
+type ErrorKind = "quota" | "unavailable" | "notfound" | "other";
+
+function describeGeminiError(raw: unknown): {
+  kind: ErrorKind;
+  message: string;
+  retrySeconds?: number;
+} {
+  const text = raw instanceof Error ? raw.message : String(raw ?? "Unknown error");
+
+  const tryParseJson = (s: string): {
+    message: string;
+    retrySeconds?: number;
+    status?: string;
+    code?: number;
+  } | null => {
+    const start = s.indexOf("{");
+    if (start === -1) return null;
+    try {
+      const obj = JSON.parse(s.slice(start));
+      const e = obj?.error;
+      if (e && typeof e.message === "string") {
+        let retrySeconds: number | undefined;
+        if (Array.isArray(e.details)) {
+          for (const d of e.details) {
+            const delay = typeof d?.retryDelay === "string" ? d.retryDelay : undefined;
+            if (delay) {
+              const n = Number.parseInt(delay, 10);
+              if (!Number.isNaN(n)) retrySeconds = n;
+            }
+          }
+        }
+        return { message: e.message, retrySeconds, status: e.status, code: Number(e.code) };
+      }
+    } catch {
+      // not JSON
+    }
+    return null;
+  };
+
+  const parsed = tryParseJson(text);
+  if (parsed) {
+    const status = String(parsed.status ?? "");
+    const code = parsed.code;
+    const kind: ErrorKind =
+      status === "RESOURCE_EXHAUSTED" || code === 429 ? "quota"
+      : status === "UNAVAILABLE" || code === 503 ? "unavailable"
+      : status === "NOT_FOUND" || code === 404 ? "notfound"
+      : "other";
+    return { kind, message: parsed.message, retrySeconds: parsed.retrySeconds };
+  }
+
+  const lower = text.toLowerCase();
+  const kind: ErrorKind =
+    lower.includes("quota") || lower.includes("resource_exhausted") || lower.includes(" 429 ")
+      ? "quota"
+      : lower.includes("unavailable") || lower.includes("high demand") || lower.includes(" 503 ")
+        ? "unavailable"
+        : lower.includes("no longer available") || lower.includes(" 404 ")
+          ? "notfound"
+          : "other";
+  return { kind, message: text };
 }
 
 async function callGemini<T>(args: CallGeminiArgs<T>): Promise<T> {
@@ -276,28 +352,54 @@ async function callGemini<T>(args: CallGeminiArgs<T>): Promise<T> {
     responseJsonSchema: args.jsonSchema,
   };
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents:
-        attempt === 1
-          ? `${args.contents}\n\nIMPORTANT: Return ONLY valid JSON. No markdown, no extra text.`
-          : args.contents,
-      config,
-    });
+  const failureReasons: string[] = [];
+  let waitSuggestion = 0;
 
-    const text = response.text;
-    if (!text) {
-      throw new Error("Gemini returned an empty response.");
-    }
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents:
+            attempt === 1
+              ? `${args.contents}\n\nIMPORTANT: Return ONLY valid JSON. No markdown, no extra text.`
+              : args.contents,
+          config,
+        });
 
-    const validated = args.validate(extractJson(text));
-    if (validated.success && validated.data !== undefined) {
-      return validated.data;
+        const text = response.text;
+        if (!text) {
+          throw new Error("Gemini returned an empty response.");
+        }
+
+        const validated = args.validate(extractJson(text));
+        if (validated.success && validated.data !== undefined) {
+          return validated.data;
+        }
+      } catch (err) {
+        const info = describeGeminiError(err);
+        failureReasons.push(`${model}: ${info.message}`);
+        if (info.retrySeconds) waitSuggestion = Math.max(waitSuggestion, info.retrySeconds);
+        // Retryable / model-specific failures -> fall through to the next model
+        // (quota is per-model) or next attempt; unexpected errors bubble up after retries.
+        if (info.kind === "quota") {
+          break; // different model has a different quota bucket
+        }
+        if (info.kind === "unavailable" || info.kind === "notfound") {
+          const backoff = info.retrySeconds
+            ? Math.min(info.retrySeconds, 5000)
+            : 400;
+          await new Promise((r) => setTimeout(r, backoff));
+          break; // try the next model
+        }
+        // unknown error -> give this model its second attempt
+      }
     }
   }
 
-  throw new Error(args.errorMessage);
+  const tried = `Tried ${GEMINI_MODELS.length} model(s). ${failureReasons[0] ?? "No response."}`;
+  const wait = waitSuggestion > 0 ? ` Wait about ${Math.ceil(waitSuggestion)}s before trying again.` : "";
+  throw new Error(`Gemini was unavailable. ${tried}${wait}`);
 }
 
 function extractJson(text: string): unknown {

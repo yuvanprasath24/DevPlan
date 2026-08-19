@@ -11,7 +11,7 @@
 | Styling | **Tailwind CSS v4** | CSS-first config via `@theme` tokens in `app/globals.css`; no JS config file to fight. |
 | Fonts | `Geist Mono` via `next/font` | Native mono terminal feel, self-hosted. |
 | State | **Zustand v5 + persist → localStorage** | No database. Sync hydration keeps the persisted plan on refresh. |
-| AI | **`@google/genai` v2** → `gemini-3.5-flash` | `responseJsonSchema` gives structured outputs; env `GEMINI_MODEL` override. Runs on Google AI Pro subscription. |
+| AI | **`@google/genai` v2** → `gemini-3.6-flash` (fallback chain: `.6-flash → 3.5-flash-lite → 3.1-flash-lite`) | `responseJsonSchema` gives structured outputs; `GEMINI_MODEL`/`GEMINI_MODELS` env override. Quota is per-model, so 429/503 failures transparently fall through to the next model. Runs on Google AI Pro subscription. |
 | Validation | **Zod v4** | Parses both the request and the model output at the API boundary. |
 | PDF | **jspdf + jspdf-autotable** | Client-side `.pdf` export of the checklist with status marks. |
 

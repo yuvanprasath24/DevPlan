@@ -30,7 +30,7 @@ This whole project was built in ~3.5 hours of implementation + ~2.5h of testing,
 6. Server asks Gemini for the **2–4 clarifying questions that most change the plan** (mode-aware: hackathon → demo target / existing code / must-have vs nice-to-have; personal → platform / storage / export format). Each question has 1–4 scenario-specific options + an optional custom answer.
 7. QuestionFlow panel renders; user taps options or types custom answers, then either `[ generate optimized plan ]` or `[ skip questions ]`.
 8. Browser POSTs `{ description, mode, timeLimitHours, answers[] }` to `POST /api/plan`.
-9. Server builds the prompt (including the clarifying answers), calls `gemini-3.5-flash` (env override `GEMINI_MODEL`), validates the result with Zod, returns structured plan.
+9. Server builds the prompt (including the clarifying answers), calls `gemini-3.6-flash` (env override `GEMINI_MODEL`), validates the result with Zod, returns structured plan.
 10. UI renders: title/tagline/summary → progress strip → user flow → tech stack → `must include` / `must avoid` (hackathon only) → grouped checklist (Environment Setup → Foundation → Core Feature → Polish → Deployment).
 11. Each task is a status cell cycling **todo → working → done** (click). Progress saved to `localStorage`, survives refresh.
 12. User can download the plan as a PDF (`jspdf` + `jspdf-autotable`) and start a new plan (reset).
@@ -46,7 +46,7 @@ Everything speaks like a terminal: `$`, `▋` blinking cursor, `[ ]` / `[~]` / `
 - [x] UI: `app/page.tsx`, `components/LandingForm.tsx`, `components/LoadingTerminal.tsx`, `components/QuestionFlow.tsx`, `components/PlanView.tsx`.
 - [x] Persistence + PDF: `lib/store.ts`, `lib/pdf.ts`.
 - [x] Clarifying-questions feature (`feat/clarifying-questions`): `app/api/questions/route.ts`, QuestionFlow, answers→plan prompt. Verified live in both modes + skip path.
-- [x] Error resilience: `[ try again ]` on any failure — re-runs the exact same pitch or plan request with your answers preserved (no re-typing); `[ new prompt ]` resets cleanly. Handles Gemini 503 high-demand spikes.
+- [x] Error resilience: `[ try again ]` on any failure — re-runs the exact same pitch or plan request with your answers preserved (no re-typing); `[ new prompt ]` resets cleanly. Handles Gemini 503 high-demand spikes **and 429 free-tier quota limits** via an automatic model fallback chain (`GEMINI_MODELS`) — quota is per-model, so a blocked model is skipped for the next one.
 - [x] Docs (`context.md`, `ARCHITECTURE.md`, `API_SCHEMA.md`, `README.md`).
 - [ ] Recording + submission bundle.
 
@@ -54,7 +54,7 @@ Everything speaks like a terminal: `$`, `▋` blinking cursor, `[ ]` / `[~]` / `
 
 | Decision | Why |
 | --- | --- |
-| `gemini-3.5-flash` default | Current stable Flash GA, fast + quality prompt adherence; most reliable structured JSON observed on the Google AI Pro tier. Override via `GEMINI_MODEL`. |
+| `gemini-3.6-flash` default | Current Flash GA; primary model. 3.5-flash free tier was exhausted for this key, so 3.6-flash leads the chain with 3.5-flash-lite and 3.1-flash-lite as fallbacks. Override via `GEMINI_MODEL`. |
 | Two-phase flow (questions → plan) | Like `opencode plan mode`: ask the few questions that most change the build, then plan. Skippable → degrades to the original one-shot MVP. |
 | 2–4 questions, options + custom | Guided answers keep the demo fast; custom escape hatch keeps it flexible. Mode-aware prompts (hackathon vs personal) keep questions sharp and non-generic. |
 | Single page app | No DB → no routing/state-passing; form → questions → plan renders in place. |

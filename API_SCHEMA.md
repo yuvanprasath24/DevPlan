@@ -106,9 +106,10 @@ Success response (HTTP 200):
 
 ## 2. Gemini requests (server-side, never reaches the browser)
 
-Model: `gemini-3.5-flash` (default `GEMINI_MODEL` env override).
+Model: `gemini-3.6-flash` (default `GEMINI_MODEL` env override; `GEMINI_MODELS` = comma-separated fallback chain — quota per model, so 429/503 auto-fall-through to the next model).
 Transport: `@google/genai` → `ai.models.generateContent`.
 Both calls go through the shared `callGemini<T>()` core (same `systemInstruction`/`contents`/`responseJsonSchema`/`validate` shape).
+Errors are normalized to friendly strings (`describeGeminiError`): "quota" → try next model (same request), "unavailable"/"notfound" → short backoff then next, other → bubble up after retries.
 
 ### 2a. Questions call (`POST /api/questions`)
 
