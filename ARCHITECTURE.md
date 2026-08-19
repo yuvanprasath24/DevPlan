@@ -20,17 +20,19 @@
 ```
 app/
   layout.tsx          metadata + fonts + root shell
-  page.tsx            "use client" — single page: generate / loading / error / plan
+  page.tsx            "use client" — single page: pitch → loader → questions → loader → plan
   globals.css         @import tailwindcss + @theme terminal palette + keyframes
-  api/plan/route.ts   POST /api/plan — validates input, calls Gemini, Zod-checks output
+  api/plan/route.ts   POST /api/plan   — validates input+answers, calls Gemini, Zod-checks output
+  api/questions/route.ts POST /api/questions — validates input, asks Gemini for 2-4 questions
   favicon.ico
 components/
   LandingForm.tsx     pitch textarea, mode toggle, hour budget, submit
-  LoadingTerminal.tsx fake terminal output while the model runs
+  LoadingTerminal.tsx fake terminal output while a model call runs (`ask` / `plan` variants)
+  QuestionFlow.tsx    edit answers: option buttons + custom input, generate/skip actions
   PlanView.tsx        full rendered plan + interactive checklist + PDF/actions
 lib/
   types.ts            Zod schemas + inferred TS types (single source of truth)
-  gemini.ts           system prompt, user prompt, JSON schema, model call, parse+normalize
+  gemini.ts           system/prompt builders, JSON schemas, model calls, parse+normalize
   store.ts            Zustand store (plan, task statuses, actions, hydration guard)
   pdf.ts              jspdf + autotable export of the plan
 .env.local.example    key + model env template (real key stays in .env.local, gitignored)
@@ -39,9 +41,10 @@ lib/
 ## Component tree
 
 ```
-app/page.tsx (client)
- ├─ LandingForm — description / mode / hours → onSubmit()
- ├─ LoadingTerminal — visual state while fetch("/api/plan") is in flight
+app/page.tsx (client)  — phases: idle / asking / answering / planning
+ ├─ LandingForm — description / mode / hours → handlePitch()
+ ├─ LoadingTerminal — "ask" while POST /api/questions, "plan" while POST /api/plan
+ ├─ QuestionFlow — questions + answers → onGenerate(answers) | onSkip()
  └─ PlanView (reads useDevPlanStore)
      ├─ header card        title · tagline · summary · mode/budget chips
      ├─ progress strip     task counts (done/working/todo) + bar
@@ -50,7 +53,7 @@ app/page.tsx (client)
      ├─ must-include / must-avoid  (hackathon mode only)
      └─ checklist          grouped by category, per-group counts, task rows
                            → cycleStatus(taskId) on click
-Footer actions: downloadPlanPdf(plan, statuses) · reset()
+Footer actions: downloadPlanPdf(plan, statuses) · new plan (onNewPlan → reset store + page state)
 ```
 
 ## State management
@@ -67,27 +70,31 @@ Status model note: the MVP uses a single checklist with 3-cycle statuses — NOT
 ## Data flow
 
 ```
-Browser                     Server (Node runtime)
-onSubmit ──POST /api/plan──► route.ts
-   │                       ├─ planRequestSchema.parse(body) → 400 if invalid
-   │                       ├─ generatePlan()  → lib/gemini.ts
-   │                       │    ├─ buildSystemInstruction()  (rules, mode-aware)
-   │                       │    ├─ buildUserPrompt(req)
-   │                       │    ├─ ai.models.generateContent({
-   │                       │    │    model: GEMINI_MODEL,
-   │                       │    │    config: { systemInstruction, responseMimeType,
-   │                       │    │              responseJsonSchema: geminiPlanSchema }
-   │                       │    │  })
-   │                       │    ├─ strip fences → JSON.parse → Zod validate (2 attempts)
-   │                       │    └─ normalizePlan() (assign ids, resolve deps)
-   │                       └─ { ok: true, data } | { ok: false, error }
-   │ ──JSON response──────►
- setPlan(data) → store → PlanView renders; statuses persist; PDF on demand
+Browser                          Server (Node runtime)
+onSubmit ──POST /api/questions──► questions route
+   │                             ├─ planRequestSchema.parse(body) → 400 if invalid
+   │                             └─ generateQuestions() → lib/gemini.ts
+   │                                  buildQuestionsSystemInstruction() (mode-aware)
+   │                                  + geminiQuestionsSchema → 2-4 questions
+   │ ──{ ok, data:{ questions } }──► QuestionFlow renders (options + custom)
+   │
+ user answers / skip
+   │
+ tap generate ──POST /api/plan──► plan route
+   │   body + answers[]           ├─ planRequestSchema.parse(body)   → 400 if invalid
+   │                             └─ generatePlan() → lib/gemini.ts
+   │                                  systemInstruction (rules, mode-aware)
+   │                                  + plan prompt (pitch + budget + answers)
+   │                                  + geminiPlanSchema → structured plan
+   │                                  extractJson → Zod validate → normalizePlan()
+   │ ──{ ok: true, data }───────► setPlan() → store → PlanView + statuses + PDF
+   └ error path                    { ok: false, error } → CLI error box + retry
 ```
 
 ## Key implementation notes
 
+- **Two model calls, one shared core:** `callGemini<T>()` in `lib/gemini.ts` is the single entry point — system instruction + contents + `responseJsonSchema` + a `validate` callback (Zod `safeParse`). Both `/api/questions` and `/api/plan` reuse it, so retry-once, fence-stripping, and error handling stay identical.
 - **API key hiding:** `GEMINI_API_KEY` is read only inside `lib/gemini.ts` (server). `GoogleGenAI` client is instantiated per request; no client bundle includes it.
 - **Structured outputs:** `responseJsonSchema` restricts keys/required/enums; Zod re-validates because the model output is untrusted. On schema disagreement the route retries once with a "return only JSON" nudge, then returns a friendly error.
-- **No DB, refresh-safe:** persisted plan + statuses rehydrate synchronously in the browser; hydration gate prevents server/client mismatch.
-- **Static fast path, dynamic AI path:** `/` is prerendered static; `POST /api/plan` is `dynamic = "force-dynamic"`, `runtime = "nodejs"`.
+- **No DB, refresh-safe:** persisted plan + statuses rehydrate synchronously in the browser; hydration gate prevents server/client mismatch. Questions/answers are transient component state — they don't survive refresh, by design.
+- **Skip path = old MVP:** `POST /api/plan` with `answers: []` behaves exactly like the original one-shot flow, so the feature is fully backward compatible.

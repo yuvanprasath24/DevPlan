@@ -22,7 +22,7 @@ function formatMinutes(m: number): string {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
-export default function PlanView() {
+export default function PlanView({ onNewPlan }: { onNewPlan?: () => void }) {
   const { plan, statuses, cycleStatus, reset } = useDevPlanStore();
 
   const totals = useMemo(() => {
@@ -265,7 +265,7 @@ export default function PlanView() {
           [ download plan.pdf ]
         </button>
         <button
-          onClick={reset}
+          onClick={onNewPlan ?? reset}
           className="rounded border border-term-border px-4 py-2 text-sm font-bold text-term-dim transition hover:border-term-red hover:text-term-red"
         >
           [ new plan ]

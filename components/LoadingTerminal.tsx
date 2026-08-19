@@ -13,7 +13,7 @@ const STEPS = [
 const COLORS = ["text-term-green", "text-term-dim", "text-term-amber", "text-term-cyan", "text-term-purple"];
 const TICKS_PER_STEP = 10;
 
-export default function LoadingTerminal() {
+export default function LoadingTerminal({ command = "gen" }: { command?: string }) {
   const [tick, setTick] = useState(0);
   const total = STEPS.length * TICKS_PER_STEP;
 
@@ -28,7 +28,7 @@ export default function LoadingTerminal() {
 
   return (
     <div className="rounded border border-term-border bg-black/50 p-4 text-sm">
-      <p className="mb-3 text-xs text-term-dim">$ devplan gen --now</p>
+      <p className="mb-3 text-xs text-term-dim">$ devplan {command} --now</p>
       {STEPS.slice(0, visible).map((s, i) => (
         <p key={i} className={COLORS[i % COLORS.length]}>
           <span className="mr-2">→</span>

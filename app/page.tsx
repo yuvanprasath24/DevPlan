@@ -1,10 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import type { ApiPlanResponse, PlanMode } from "../lib/types";
+import type {
+  ApiPlanResponse,
+  ApiQuestionsResponse,
+  ClarificationAnswer,
+  ClarificationQuestion,
+  PlanMode,
+} from "../lib/types";
 import { useDevPlanStore, useHasHydrated } from "../lib/store";
 import LandingForm from "../components/LandingForm";
 import LoadingTerminal from "../components/LoadingTerminal";
+import QuestionFlow from "../components/QuestionFlow";
 import PlanView from "../components/PlanView";
 
 interface GenerateInput {
@@ -13,46 +20,99 @@ interface GenerateInput {
   hours: number;
 }
 
+type Phase = "idle" | "asking" | "answering" | "planning";
+
+function extractError(payload: unknown, status: number): string {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const p = payload as { error?: unknown };
+    if (typeof p.error === "string") return p.error;
+  }
+  return `Request failed (${status}).`;
+}
+
 export default function Home() {
   const hydrated = useHasHydrated();
-  const { setPlan } = useDevPlanStore();
+  const { plan, setPlan } = useDevPlanStore();
 
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [lastInput, setLastInput] = useState<GenerateInput | null>(null);
+  const [latestInput, setLatestInput] = useState<GenerateInput | null>(null);
+  const [questions, setQuestions] = useState<ClarificationQuestion[] | null>(null);
 
-  const handleGenerate = async (input: GenerateInput) => {
-    setLoading(true);
+  const callApi = async (
+    path: string,
+    body: Record<string, unknown>
+  ): Promise<unknown> => {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(extractError(payload, res.status));
+    return payload;
+  };
+
+  const planBody = (input: GenerateInput, answers: ClarificationAnswer[]) => ({
+    description: input.description,
+    mode: input.mode,
+    timeLimitHours: input.mode === "hackathon" ? input.hours : undefined,
+    answers,
+  });
+
+  const generatePlanWithAnswers = async (
+    input: GenerateInput,
+    answers: ClarificationAnswer[]
+  ) => {
+    setPhase("planning");
     setError(null);
-    setLastInput(input);
-
     try {
-      const res = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description: input.description,
-          mode: input.mode,
-          timeLimitHours: input.mode === "hackathon" ? input.hours : undefined,
-        }),
-      });
-
-      const payload = (await res.json()) as ApiPlanResponse;
-      if (!res.ok || !payload.ok) {
-        const msg = !payload.ok ? payload.error : `Request failed (${res.status})`;
-        throw new Error(msg);
-      }
-
+      const payload = (await callApi(
+        "/api/plan",
+        planBody(input, answers)
+      )) as ApiPlanResponse;
+      if (!payload.ok) throw new Error(payload.error);
       setPlan(payload.data);
+      setQuestions(null);
+      setPhase("idle");
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Plan generation failed. Check your Gemini API key and try again.";
-      setError(message);
-    } finally {
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Plan generation failed.");
+      setPhase("answering");
     }
+  };
+
+  const handlePitch = async (input: GenerateInput) => {
+    setPhase("asking");
+    setError(null);
+    setLatestInput(input);
+    try {
+      const payload = (await callApi("/api/questions", planBody(input, []))) as ApiQuestionsResponse;
+      if (!payload.ok) throw new Error(payload.error);
+      setQuestions(payload.data.questions);
+      setPhase("answering");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Questions couldn't be generated — ${err.message}`
+          : "Questions couldn't be generated."
+      );
+      setPhase("idle");
+    }
+  };
+
+  const handleAnswered = (answers: ClarificationAnswer[]) => {
+    if (latestInput) void generatePlanWithAnswers(latestInput, answers);
+  };
+
+  const handleSkip = () => {
+    if (latestInput) void generatePlanWithAnswers(latestInput, []);
+  };
+
+  const newPlan = () => {
+    useDevPlanStore.getState().reset();
+    setQuestions(null);
+    setPhase("idle");
+    setError(null);
   };
 
   if (!hydrated) {
@@ -79,7 +139,7 @@ export default function Home() {
             <span className="text-term-green">before the deadline is gone</span>.
           </p>
           <p className="mt-1 text-xs text-term-dim">
-            pitch → plan mode → structured checklist → pdf. no database, no fuss.
+            pitch → clarifying questions → structured checklist → pdf. no database, no fuss.
           </p>
         </header>
 
@@ -88,30 +148,48 @@ export default function Home() {
             <span className="text-term-green">#</span> engage devplan
           </p>
 
-          {loading && (
+          {phase === "asking" && (
             <div className="space-y-4">
-              <LoadingTerminal />
+              <LoadingTerminal command="ask" />
               <p className="break-words text-xs text-term-dim">
-                <span className="text-term-amber">›</span> {lastInput?.description}
+                <span className="text-term-amber">›</span> {latestInput?.description}
               </p>
             </div>
           )}
 
-          {!loading && error && (
+          {phase === "planning" && (
+            <div className="space-y-4">
+              <LoadingTerminal command="plan" />
+              <p className="break-words text-xs text-term-dim">
+                <span className="text-term-amber">›</span> {latestInput?.description}
+              </p>
+            </div>
+          )}
+
+          {phase === "answering" && questions && (
+            <QuestionFlow
+              questions={questions}
+              submitting={false}
+              onGenerate={handleAnswered}
+              onSkip={handleSkip}
+            />
+          )}
+
+          {error && phase === "idle" && (
             <div className="mb-4 space-y-3">
               <div className="rounded border border-term-red/50 bg-term-red/10 p-3 text-xs text-term-red">
                 <span className="font-bold">✗ error:</span> {error}
               </div>
-              <LandingForm onSubmit={handleGenerate} />
+              <LandingForm onSubmit={handlePitch} />
             </div>
           )}
 
-          {!loading && !error && (
-            <LandingForm onSubmit={handleGenerate} />
+          {phase === "idle" && !plan && !error && (
+            <LandingForm onSubmit={handlePitch} />
           )}
         </div>
 
-        <PlanView />
+        {plan && <PlanView onNewPlan={newPlan} />}
 
         <footer className="pb-10 text-center text-[11px] text-term-dim">
           devplan — ai project planning that ships before the deadline ·{" "}

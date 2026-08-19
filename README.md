@@ -16,12 +16,21 @@ AI project planning that ships **before the deadline is gone** — like `opencod
 ## Features
 
 - Type a project description, pick **personal (no limit)** or **hackathon (X hrs)**.
-- Gemini returns a structured plan: summary, user flow, tech stack, **must include / must avoid** (hackathon mode), and a grouped checklist — Environment Setup → Foundation → Core Feature → Polish → Deployment.
+- Plan mode: Gemini asks the **2–4 clarifying questions that most change the build** (options + custom answers, skippable) — tuned per mode (hackathon → demo/scope; personal → platform/storage/export).
+- The final plan: summary, user flow, tech stack, **must include / must avoid** (hackathon mode), and a grouped checklist — Environment Setup → Foundation → Core Feature → Polish → Deployment.
 - Checklist cells cycle `todo → working → done`; progress bar + per-category counts.
 - Plan + progress persist in `localStorage` (zero database), survive refresh.
 - Download the whole plan as a **PDF** with status marks.
-- API key lives only in the server route handler — never sent to the browser.
+- API key lives only in the server route handlers — never sent to the browser.
 - CLI-themed UI: black/green terminal, mono font, blinking cursor, `$` prompts.
+
+## How it works
+
+```
+pitch ──> POST /api/questions ──> Gemini (2-4 clarifying questions)
+  ── answer / skip ──> POST /api/plan ──> Gemini (structured plan, answers baked in)
+  ──> Zod validate ──> checklist UI ──> localStorage ──> PDF
+```
 
 ## Quick start
 
@@ -60,5 +69,6 @@ npm run lint    # eslint
 
 ## Scope guardrails
 
-- **MVP = one page, one AI call, checklist + PDF.** Multi-question planning flow and a Kanban board are the stretch branch — deliberately NOT in this build.
+- **MVP = one page, ≤4 clarifying questions, one plan call, checklist + PDF.** The Kanban board is the remaining stretch branch — deliberately NOT in this build.
+- Questions are skippable, so the flow still degrades to a single AI call when you just want the plan.
 - No database, no auth, no payments — demo first, fancy later.

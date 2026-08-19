@@ -3,6 +3,38 @@ import { z } from "zod";
 export const planModeSchema = z.enum(["personal", "hackathon"]);
 export type PlanMode = z.infer<typeof planModeSchema>;
 
+export const clarificationOptionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+});
+export type ClarificationOption = z.infer<typeof clarificationOptionSchema>;
+
+export const clarificationQuestionSchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  detail: z.string().default(""),
+  options: z.array(clarificationOptionSchema).min(1).max(4),
+  allowCustom: z.boolean().default(true),
+});
+export type ClarificationQuestion = z.infer<typeof clarificationQuestionSchema>;
+
+export const clarificationAnswerSchema = z.object({
+  questionId: z.string(),
+  answer: z.string().trim().min(1, "Answer cannot be empty.").max(500),
+});
+export type ClarificationAnswer = z.infer<typeof clarificationAnswerSchema>;
+
+export const questionsResponseSchema = z.object({
+  questions: z.array(clarificationQuestionSchema).min(2).max(4),
+});
+export type QuestionsResponse = z.infer<typeof questionsResponseSchema>;
+
+export const apiQuestionsResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), data: questionsResponseSchema }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type ApiQuestionsResponse = z.infer<typeof apiQuestionsResponseSchema>;
+
 export const planRequestSchema = z.object({
   description: z
     .string()
@@ -16,6 +48,7 @@ export const planRequestSchema = z.object({
     .min(1, "Provide at least 1 hour.")
     .max(48, "Hackathons rarely exceed 48 hours.")
     .optional(),
+  answers: z.array(clarificationAnswerSchema).max(4).default([]).optional(),
 });
 export type PlanRequest = z.infer<typeof planRequestSchema>;
 

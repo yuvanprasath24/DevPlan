@@ -11,11 +11,15 @@ Request (application/json):
 {
   "description": "A CLI tool that turns a restaurant menu into share-card images",
   "mode": "hackathon",               // "personal" | "hackathon"
-  "timeLimitHours": 6                // required when mode === "hackathon"; 1..48
+  "timeLimitHours": 6,               // required when mode === "hackathon"; 1..48
+  "answers": [                       // optional; max 4 — from the questions flow
+    { "questionId": "q2", "answer": "Node Canvas or Sharp (fast, programmatic)" }
+  ]
 }
 ```
 
 `description`: min 10, max 2000 chars. Zod rejects otherwise (HTTP 400).
+`answers`: optional, max 4 entries; each `questionId` non-empty, `answer` 1–500 chars. Omit or send `[]` to skip questions (original one-shot behavior).
 
 Success response (HTTP 200):
 
@@ -69,23 +73,82 @@ Enums in `data`:
 
 `task.descriptions` and all arrays may be empty except `tasks` (min 1).
 
-## 2. Gemini request (server-side, never reaches the browser)
+## 1b. `POST /api/questions`
+
+Request (application/json): identical schema to `/api/plan` (including optional `answers`, which are ignored).
+
+Success response (HTTP 200):
+
+```json
+{
+  "ok": true,
+  "data": {
+    "questions": [
+      {
+        "id": "q2",
+        "question": "Which technology should be used to render the share-card images?",
+        "detail": "Trades off speed vs. fidelity of the output.",
+        "options": [
+          { "id": "a", "label": "Puppeteer (HTML/CSS to image)" },
+          { "id": "b", "label": "Node Canvas or Sharp (fast, programmatic)" },
+          { "id": "c", "label": "Third-party API (e.g. Bannerbear)" }
+        ],
+        "allowCustom": true
+      }
+    ]
+  }
+}
+```
+
+- `questions`: 2–4 items (Zod `min(2).max(4)`; server slices to 4 defensively).
+- Each question: 1–4 options; `allowCustom` defaults to `true` when omitted.
+- Error shape matches `/api/plan`: `{ "ok": false, "error": "…" }` with status 400/500/502.
+
+## 2. Gemini requests (server-side, never reaches the browser)
 
 Model: `gemini-3.5-flash` (default `GEMINI_MODEL` env override).
 Transport: `@google/genai` → `ai.models.generateContent`.
+Both calls go through the shared `callGemini<T>()` core (same `systemInstruction`/`contents`/`responseJsonSchema`/`validate` shape).
 
-Call shape (Node):
+### 2a. Questions call (`POST /api/questions`)
 
 ```ts
 await ai.models.generateContent({
   model: GEMINI_MODEL,
-  contents: buildUserPrompt(req),
+  contents: buildQuestionsPrompt(req),        // envelope (see below) prefixed by "Ask the clarifying questions…"
+  config: {
+    systemInstruction: buildQuestionsSystemInstruction(),
+    responseMimeType: "application/json",
+    responseJsonSchema: geminiQuestionsSchema,
+  },
+});
+```
+
+`buildQuestionsSystemInstruction()` rules: 2–4 questions; derived from the description + mode (never generic);
+never ask what the description already states; mode-aware (hackathon → demo target / existing code /
+must-have vs nice-to-have / deployment; personal → platform / storage / export format);
+options max 6 words; `allowCustom` unless options are exhaustive.
+
+### 2b. Plan call (`POST /api/plan`)
+
+```ts
+await ai.models.generateContent({
+  model: GEMINI_MODEL,
+  contents: buildUserPrompt(req),            // envelope + Clarifying answers section when answers present
   config: {
     systemInstruction: buildSystemInstruction(),
     responseMimeType: "application/json",
     responseJsonSchema: geminiPlanSchema,
   },
 });
+```
+
+`buildProjectContext(req)` produces the shared envelope (description + mode/budget line).
+`buildAnswersSection(req)` appends when `req.answers` is non-empty:
+
+```
+Clarifying answers from the user (use these to tune the plan):
+  - (q2) Node Canvas or Sharp (fast, programmatic)
 ```
 
 `contents` (user message) shape:
@@ -108,6 +171,48 @@ Time budget: 6 hour(s) — hard deadline. Plan must fit.
 - Tasks small (5–90 min), 12–22 total, independently actionable.
 - **Hackathon:** total `estimatedMinutes` ≈ 75–85% of the hour budget; `mustInclude` = 3–5 core-value items; `mustAvoid` = 3–5 realistic time traps listed with reasons; cut anything that can't fit into `mustAvoid`.
 - **Personal:** may plan more ambitiously but still ordered setup → deploy; `mustInclude`/`mustAvoid` can be empty arrays.
+
+### 3a. Questions response JSON Schema (`geminiQuestionsSchema`)
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "questions": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id":       { "type": "string" },
+          "question": { "type": "string" },
+          "detail":   { "type": "string" },
+          "options": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id":    { "type": "string" },
+                "label": { "type": "string" }
+              },
+              "required": ["id", "label"]
+            }
+          },
+          "allowCustom": { "type": "boolean" }
+        },
+        "required": ["id", "question", "options", "allowCustom"]
+      }
+    }
+  },
+  "required": ["questions"]
+}
+```
 
 ## 3. Gemini response JSON Schema (`responseJsonSchema`)
 
@@ -182,7 +287,9 @@ Time budget: 6 hour(s) — hard deadline. Plan must fit.
 
 ## 4. Post-processing (server)
 
+Both calls share `callGemini<T>()`:
+
 1. Strip possible markdown fences `` ```json … ``` ``.
 2. Extract first `{ … }` span, `JSON.parse`.
-3. Zod validate (`planResponseSchema`); on failure retry once with a "return ONLY valid JSON" nudge on `contents`.
-4. `normalizePlan()`: assign `id` when missing (`task-N`), map `dependencies` by title→id, default `priority` to `"medium"`.
+3. Zod validate (`questionsResponseSchema` for questions — then slice to 4; `planResponseSchema` for plans); on failure retry once with a "return ONLY valid JSON" nudge on `contents`.
+4. Plans only: `normalizePlan()` — assign `id` when missing (`task-N`), map `dependencies` by title→id, default `priority` to `"medium"`, and drop `timeLimitHours` in personal mode.
