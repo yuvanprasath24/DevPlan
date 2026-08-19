@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DevPlan
 
-## Getting Started
+AI project planning that ships **before the deadline is gone** — like `opencode plan mode`, but it turns a one-line pitch into a working build checklist from environment setup to deployment.
 
-First, run the development server:
+![stack](https://img.shields.io/badge/Next.js%2016-000000?logo=next.js)
+![stack](https://img.shields.io/badge/Tailwind%20v4-38bdf8?logo=tailwindcss)
+![stack](https://img.shields.io/badge/Gemini%202.5%20Flash-8c7853?logo=googlegemini)
+![stack](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript)
+
+## Why
+
+- Hackers burn their time budget on fancy features and never demo the core value.
+- **Small that works beats big that half works** — the app enforces that: pick a time limit and Gemini plans only what fits.
+- Built in ~3.5h implementation as the deliverable of a 6-hour build sprint (no database, no Kanban board — just the plan that works).
+
+## Features
+
+- Type a project description, pick **personal (no limit)** or **hackathon (X hrs)**.
+- Gemini returns a structured plan: summary, user flow, tech stack, **must include / must avoid** (hackathon mode), and a grouped checklist — Environment Setup → Foundation → Core Feature → Polish → Deployment.
+- Checklist cells cycle `todo → working → done`; progress bar + per-category counts.
+- Plan + progress persist in `localStorage` (zero database), survive refresh.
+- Download the whole plan as a **PDF** with status marks.
+- API key lives only in the server route handler — never sent to the browser.
+- CLI-themed UI: black/green terminal, mono font, blinking cursor, `$` prompts.
+
+## Quick start
 
 ```bash
+npm install
+cp .env.local.example .env.local   # paste your Google AI Studio key in GEMINI_API_KEY
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000, describe a project, pick a mode, hit `$ devplan gen`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Optional env
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Var | Default | Notes |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | — | required; Google AI Studio key (works with a Google AI Pro subscription) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | any model your key can reach |
 
-## Learn More
+## How it works
 
-To learn more about Next.js, take a look at the following resources:
+```
+pitch ──> POST /api/plan ──> Gemini (server-side, structured JSON output)
+     ──> Zod validate ──> checklist UI ──> localStorage ──> PDF
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Every next agent/editor gets context fast from the living docs: **`context.md`** (product/history), **`ARCHITECTURE.md`** (stack/flow), **`API_SCHEMA.md`** (exact JSON shapes).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+```bash
+npm run dev     # dev server (Turbopack)
+npm run build   # production build
+npm run start   # serve the build
+npm run lint    # eslint
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Scope guardrails
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **MVP = one page, one AI call, checklist + PDF.** Multi-question planning flow and a Kanban board are the stretch branch — deliberately NOT in this build.
+- No database, no auth, no payments — demo first, fancy later.
