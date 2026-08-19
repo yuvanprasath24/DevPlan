@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import type {
-  ClarificationAnswer,
-  ClarificationQuestion,
-} from "../lib/types";
+import type { ClarificationAnswer, ClarificationQuestion } from "../lib/types";
+
+export interface QaState {
+  answers: Record<string, string>;
+  customMode: Record<string, boolean>;
+}
 
 interface QuestionFlowProps {
   questions: ClarificationQuestion[];
+  qa: QaState;
+  onQaChange: (next: QaState) => void;
   submitting: boolean;
   onGenerate: (answers: ClarificationAnswer[]) => void;
   onSkip: () => void;
@@ -15,25 +18,40 @@ interface QuestionFlowProps {
 
 export default function QuestionFlow({
   questions,
+  qa,
+  onQaChange,
   submitting,
   onGenerate,
   onSkip,
 }: QuestionFlowProps) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [customMode, setCustomMode] = useState<Record<string, boolean>>({});
-
-  const answeredCount = questions.filter((q) => (answers[q.id] ?? "").trim()).length;
+  const answeredCount = questions.filter(
+    (q) => (qa.answers[q.id] ?? "").trim()
+  ).length;
 
   const pickOption = (q: ClarificationQuestion, label: string) =>
-    setAnswers((prev) => ({ ...prev, [q.id]: label }));
+    onQaChange({
+      ...qa,
+      answers: { ...qa.answers, [q.id]: label },
+      customMode: { ...qa.customMode, [q.id]: false },
+    });
 
   const toggleCustom = (q: ClarificationQuestion) =>
-    setCustomMode((prev) => ({ ...prev, [q.id]: !prev[q.id] }));
+    onQaChange({
+      ...qa,
+      customMode: { ...qa.customMode, [q.id]: !qa.customMode[q.id] },
+    });
+
+  const typeCustom = (q: ClarificationQuestion, value: string) =>
+    onQaChange({
+      ...qa,
+      answers: { ...qa.answers, [q.id]: value },
+      customMode: { ...qa.customMode, [q.id]: true },
+    });
 
   const handleGenerate = () => {
     const collected: ClarificationAnswer[] = questions
-      .filter((q) => (answers[q.id] ?? "").trim().length > 0)
-      .map((q) => ({ questionId: q.id, answer: answers[q.id].trim() }));
+      .filter((q) => (qa.answers[q.id] ?? "").trim().length > 0)
+      .map((q) => ({ questionId: q.id, answer: qa.answers[q.id].trim() }));
     onGenerate(collected);
   };
 
@@ -49,8 +67,8 @@ export default function QuestionFlow({
 
       <div className="space-y-5">
         {questions.map((q, idx) => {
-          const value = answers[q.id] ?? "";
-          const isCustom = customMode[q.id] ?? false;
+          const value = qa.answers[q.id] ?? "";
+          const isCustom = qa.customMode[q.id] ?? false;
           return (
             <div
               key={q.id}
@@ -74,10 +92,7 @@ export default function QuestionFlow({
                       key={opt.id}
                       type="button"
                       disabled={submitting}
-                      onClick={() => {
-                        setCustomMode((p) => ({ ...p, [q.id]: false }));
-                        pickOption(q, opt.label);
-                      }}
+                      onClick={() => pickOption(q, opt.label)}
                       className={`rounded border px-2 py-1 text-xs transition disabled:opacity-50 ${
                         active
                           ? "border-term-amber bg-term-amber/20 text-term-amber"
@@ -109,9 +124,7 @@ export default function QuestionFlow({
                   type="text"
                   value={value}
                   disabled={submitting}
-                  onChange={(e) =>
-                    setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
-                  }
+                  onChange={(e) => typeCustom(q, e.target.value)}
                   placeholder="type your answer…"
                   className="mt-2 w-full rounded border border-term-amber/40 bg-black/40 px-2 py-1 text-sm text-term-fg placeholder:text-term-dim/60 outline-none focus:border-term-amber/70"
                 />

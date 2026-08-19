@@ -46,6 +46,7 @@ Everything speaks like a terminal: `$`, `▋` blinking cursor, `[ ]` / `[~]` / `
 - [x] UI: `app/page.tsx`, `components/LandingForm.tsx`, `components/LoadingTerminal.tsx`, `components/QuestionFlow.tsx`, `components/PlanView.tsx`.
 - [x] Persistence + PDF: `lib/store.ts`, `lib/pdf.ts`.
 - [x] Clarifying-questions feature (`feat/clarifying-questions`): `app/api/questions/route.ts`, QuestionFlow, answers→plan prompt. Verified live in both modes + skip path.
+- [x] Error resilience: `[ try again ]` on any failure — re-runs the exact same pitch or plan request with your answers preserved (no re-typing); `[ new prompt ]` resets cleanly. Handles Gemini 503 high-demand spikes.
 - [x] Docs (`context.md`, `ARCHITECTURE.md`, `API_SCHEMA.md`, `README.md`).
 - [ ] Recording + submission bundle.
 

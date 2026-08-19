@@ -11,7 +11,7 @@ import type {
 import { useDevPlanStore, useHasHydrated } from "../lib/store";
 import LandingForm from "../components/LandingForm";
 import LoadingTerminal from "../components/LoadingTerminal";
-import QuestionFlow from "../components/QuestionFlow";
+import QuestionFlow, { type QaState } from "../components/QuestionFlow";
 import PlanView from "../components/PlanView";
 
 interface GenerateInput {
@@ -21,6 +21,9 @@ interface GenerateInput {
 }
 
 type Phase = "idle" | "asking" | "answering" | "planning";
+type RetryKind = "pitch" | "plan";
+
+const EMPTY_QA: QaState = { answers: {}, customMode: {} };
 
 function extractError(payload: unknown, status: number): string {
   if (payload && typeof payload === "object" && "error" in payload) {
@@ -36,8 +39,10 @@ export default function Home() {
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState<RetryKind | null>(null);
   const [latestInput, setLatestInput] = useState<GenerateInput | null>(null);
   const [questions, setQuestions] = useState<ClarificationQuestion[] | null>(null);
+  const [qa, setQa] = useState<QaState>(EMPTY_QA);
 
   const callApi = async (
     path: string,
@@ -66,6 +71,7 @@ export default function Home() {
   ) => {
     setPhase("planning");
     setError(null);
+    setRetry(null);
     try {
       const payload = (await callApi(
         "/api/plan",
@@ -74,9 +80,11 @@ export default function Home() {
       if (!payload.ok) throw new Error(payload.error);
       setPlan(payload.data);
       setQuestions(null);
+      setQa(EMPTY_QA);
       setPhase("idle");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Plan generation failed.");
+      setRetry("plan");
       setPhase("answering");
     }
   };
@@ -84,7 +92,9 @@ export default function Home() {
   const handlePitch = async (input: GenerateInput) => {
     setPhase("asking");
     setError(null);
+    setRetry(null);
     setLatestInput(input);
+    setQa(EMPTY_QA);
     try {
       const payload = (await callApi("/api/questions", planBody(input, []))) as ApiQuestionsResponse;
       if (!payload.ok) throw new Error(payload.error);
@@ -96,6 +106,7 @@ export default function Home() {
           ? `Questions couldn't be generated — ${err.message}`
           : "Questions couldn't be generated."
       );
+      setRetry("pitch");
       setPhase("idle");
     }
   };
@@ -108,11 +119,26 @@ export default function Home() {
     if (latestInput) void generatePlanWithAnswers(latestInput, []);
   };
 
+  const handleRetry = () => {
+    if (!latestInput) return;
+    if (retry === "pitch") void handlePitch(latestInput);
+    else if (retry === "plan")
+      void generatePlanWithAnswers(latestInput, Object.entries(qa.answers)
+        .filter(([, v]) => v.trim().length > 0)
+        .map(([questionId, answer]) => ({ questionId, answer: answer.trim() })));
+  };
+
+  const resetFlow = () => {
+    setError(null);
+    setRetry(null);
+    setQuestions(null);
+    setQa(EMPTY_QA);
+    setPhase("idle");
+  };
+
   const newPlan = () => {
     useDevPlanStore.getState().reset();
-    setQuestions(null);
-    setPhase("idle");
-    setError(null);
+    resetFlow();
   };
 
   if (!hydrated) {
@@ -122,6 +148,33 @@ export default function Home() {
       </main>
     );
   }
+
+  const retryPanel = error && (
+    <div className="mb-4 space-y-2 rounded border border-term-red/50 bg-term-red/10 p-3">
+      <p className="text-xs text-term-red">
+        <span className="font-bold">✗ error:</span> {error}
+      </p>
+      <p className="text-[11px] text-term-dim">
+        If the model is busy (high demand), a quick retry usually works.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleRetry}
+          className="rounded border border-term-red px-3 py-1 text-xs font-bold text-term-red transition hover:bg-term-red hover:text-black"
+        >
+          [ try again ]
+        </button>
+        <button
+          type="button"
+          onClick={resetFlow}
+          className="rounded border border-term-border px-3 py-1 text-xs font-bold text-term-dim transition hover:border-term-cyan hover:text-term-cyan"
+        >
+          [ new prompt ]
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <main className="min-h-dvh bg-term-bg text-term-fg">
@@ -167,25 +220,26 @@ export default function Home() {
           )}
 
           {phase === "answering" && questions && (
-            <QuestionFlow
-              questions={questions}
-              submitting={false}
-              onGenerate={handleAnswered}
-              onSkip={handleSkip}
-            />
+            <>
+              {retry === "plan" && retryPanel}
+              <QuestionFlow
+                questions={questions}
+                qa={qa}
+                onQaChange={setQa}
+                submitting={false}
+                onGenerate={handleAnswered}
+                onSkip={handleSkip}
+              />
+            </>
           )}
 
-          {error && phase === "idle" && (
-            <div className="mb-4 space-y-3">
-              <div className="rounded border border-term-red/50 bg-term-red/10 p-3 text-xs text-term-red">
-                <span className="font-bold">✗ error:</span> {error}
-              </div>
-              <LandingForm onSubmit={handlePitch} />
-            </div>
-          )}
-
-          {phase === "idle" && !plan && !error && (
-            <LandingForm onSubmit={handlePitch} />
+          {phase === "idle" && (
+            <>
+              {retry === "pitch" && retryPanel}
+              {!plan && (
+                <LandingForm onSubmit={handlePitch} />
+              )}
+            </>
           )}
         </div>
 
