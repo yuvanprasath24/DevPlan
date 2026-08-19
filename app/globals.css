@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --background: #05080a;
+  --foreground: #c8e6d0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-term-bg: #05080a;
+  --color-term-fg: #c8e6d0;
+  --color-term-green: #3cfc8f;
+  --color-term-dim: #5f7a6c;
+  --color-term-amber: #ffb454;
+  --color-term-red: #ff5c5c;
+  --color-term-cyan: #4dd8e8;
+  --color-term-purple: #c792ea;
+  --color-term-border: #1d3329;
+  --color-term-check: #0f2a1d;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: #3cfc8f;
+  color: #05080a;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1d3329 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #1d3329;
+  border-radius: 4px;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fade-up 0.25s ease-out both;
+}
