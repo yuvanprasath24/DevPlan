@@ -68,7 +68,7 @@ export default function PlanView() {
           <span className="rounded border border-term-border px-2 py-0.5">
             mode: {plan.mode}
           </span>
-          {plan.timeLimitHours && (
+          {plan.mode === "hackathon" && plan.timeLimitHours && (
             <span className="rounded border border-term-border px-2 py-0.5">
               budget: {plan.timeLimitHours}h
             </span>

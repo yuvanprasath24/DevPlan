@@ -71,7 +71,7 @@ Enums in `data`:
 
 ## 2. Gemini request (server-side, never reaches the browser)
 
-Model: `gemini-2.5-flash` (default `GEMINI_MODEL` env override).
+Model: `gemini-3.5-flash` (default `GEMINI_MODEL` env override).
 Transport: `@google/genai` → `ai.models.generateContent`.
 
 Call shape (Node):

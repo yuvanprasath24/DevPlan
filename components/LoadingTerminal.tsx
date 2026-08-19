@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 const STEPS = [
   { text: "apollo init devplan", icons: ["✦", "✦"] },
   { text: "resolving project description…", icons: ["◐", "◑", "◒", "◓"] },
-  { text: "invoking gemini-2.5-flash…", icons: ["◐", "◑", "◒", "◓"] },
+  { text: "invoking gemini-3.5-flash…", icons: ["◐", "◑", "◒", "◓"] },
   { text: "waiting on model output…", icons: ["◐", "◑", "◒", "◓"] },
   { text: "parsing structured plan ✓", icons: ["✓"] },
 ];

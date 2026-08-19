@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { planResponseSchema, type PlanRequest, type PlanResponse } from "./types";
 
-export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.5-flash";
 
 const categoryEnum = [
   "Environment Setup",
@@ -224,5 +224,10 @@ function normalizePlan(plan: PlanResponse): PlanResponse {
     idByTitle.set(task.title, id);
     return resolved;
   });
-  return { ...plan, tasks };
+  return {
+    ...plan,
+    mode: plan.mode,
+    timeLimitHours: plan.mode === "hackathon" ? plan.timeLimitHours : undefined,
+    tasks,
+  };
 }
