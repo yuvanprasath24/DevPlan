@@ -179,15 +179,15 @@ export default function Home() {
   return (
     <main className="min-h-dvh bg-term-bg text-term-fg">
       <div className="mx-auto max-w-3xl px-4">
-        <header className="py-10">
-          <pre className="text-sm leading-snug text-term-green">
-{` ▄▄▄▄▄▄▄▄▄▄▄ ▄▄▄▄   ▄▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄▄
- █ ▄▄▄▄▄ █ █▀▄█ ▄▄▄▀▀▀██ ▄▀█ █ ▄▄▄▄▄ █
- █ █   █ █ ▄ ▄  ▄▄ ▄ █▄▀▄█ █ █ █   █ █
- █ █▄▄▄█ █ █▄█ ▀▀█▄▄▀██▄▄███ █ █▄▄▄█ █
- █▄▄▄▄▄▄▄█▄█▄█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█▄█▄▄▄▄▄▄▄█`}
-          </pre>
-          <p className="mt-3 text-sm text-term-fg/90">
+        <header className="py-10 text-center">
+          <p className="text-xs text-term-dim">
+            <span className="text-term-green">$</span> devplan --version 1.0.0
+          </p>
+          <h1 className="mt-2 text-4xl font-black tracking-wider text-term-green sm:text-5xl">
+            DevPlan
+            <span className="cursor-blink">▋</span>
+          </h1>
+          <p className="mt-4 text-sm text-term-fg/90">
             Plan a whole software project with AI — from empty folder to deployed app —{" "}
             <span className="text-term-green">before the deadline is gone</span>.
           </p>
